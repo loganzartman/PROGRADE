@@ -48,6 +48,7 @@ var P = {
 
 		ship.init();
 		planet.init();
+		ui.init();
 
 		setInterval(P.step, 1000/60);
 	},
@@ -267,20 +268,24 @@ var ui = {
 		ui.proMarker = new PIXI.Graphics();
 		ui.proMarker.lineColor = 0x00FF00;
 		ui.proMarker.lineWidth = 1;
+		ui.proMarker.beginFill(0x00FF00,1);
 		ui.proMarker.drawPolygon([
 			new PIXI.Point(0,0),
 			new PIXI.Point(32,16),
 			new PIXI.Point(0,32)
 		]);
+		ui.proMarker.endFill();
 
 		ui.retroMarker = new PIXI.Graphics();
 		ui.retroMarker.lineColor = 0xFF0000;
 		ui.retroMarker.lineWidth = 1;
+		ui.retroMarker.beginFill(0xFF0000,1);
 		ui.retroMarker.drawPolygon([
 			new PIXI.Point(0,0),
 			new PIXI.Point(32,16),
 			new PIXI.Point(0,32)
 		]);
+		ui.retroMarker.endFill();
 	},
 
 	build: function(container) {
@@ -290,11 +295,17 @@ var ui = {
 	},
 
 	step: function() {
-		ui.proMarker.pivot = {x:0, y:0};
-		ui.retroMarker.pivot = {x:0, y:0};
-
 		ui.proMarker.position = {x: ship.x, y: ship.y};
 		ui.retroMarker.position = {x: ship.x, y: ship.y};
+	
+		var vel = Math.sqrt(ship.vx*ship.vx+ship.vy*ship.vy);
+		var angle = Math.atan2(ship.vy, ship.vx);
+		ui.proMarker.rotation = angle;
+		ui.retroMarker.rotation = Math.PI+angle;
+		
+		var pos = 96 + 5*vel;
+		ui.proMarker.pivot = {x:-pos, y:16};
+		ui.retroMarker.pivot = {x:-pos, y:16};
 	}
 };
 
