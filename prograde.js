@@ -220,10 +220,12 @@ var ship = {
 
 	step: function() {
 		//gravity
+		var dx = ship.x-planet.x;
+		var dy = ship.y-planet.y;
+		var d = Math.sqrt(dx*dx+dy*dy);
+		ship.alt = d;
+
 		if (P.GRAVITY_ENABLED) {
-			var dx = ship.x-planet.x;
-			var dy = ship.y-planet.y;
-			var d = Math.sqrt(dx*dx+dy*dy);
 			var g = P.G*((ship.mass*planet.mass)/d);
 			var angle = Math.atan2(dy,dx);
 			ship.vx -= Math.cos(angle)*g;
@@ -265,7 +267,9 @@ var ship = {
 		ship.sprite.rotation = ship.r-Math.PI/2;
 		ship.sprite.scale = {x:1, y:1};
 
-		if (d<planet.rad) {
+		ship.speed = Math.sqrt(ship.vx*ship.vx+ship.vy*ship.vy);
+
+		if (ship.alt<planet.rad) {
 			P.startMenu();
 		}
 	}
@@ -307,16 +311,16 @@ var ui = {
 			dropShadowColor: "black",
 			dropShadowDistance: "2"
 		});
-		ui.speed.position = {x:window.innerWidth/6, y:window.innerHeight-ui.speed.height-window.innerHeight/6};
+		ui.speed.position = {x:window.innerWidth/6, y:window.innerHeight-24-window.innerHeight/6};
 		
-		ui.alt = new PIXI.Text("ALT: 0000", {
+		ui.alt = new PIXI.Text("ALT: 0000m", {
 			font: "24pt Raleway",
 			fill: "white",
 			dropShadow: true,
 			dropShadowColor: "black",
 			dropShadowDistance: "2"
 		});
-		ui.alt.position = {x:window.innerWidth-ui.alt.width-window.innerWidth/6, y:window.innerHeight-ui.alt.height-window.innerHeight/6};
+		ui.alt.position = {x:window.innerWidth-ui.alt.width-window.innerWidth/6, y:window.innerHeight-24-window.innerHeight/6};
 	},
 
 	build: function(container) {
@@ -339,6 +343,9 @@ var ui = {
 		var pos = 96 + 5*vel;
 		ui.proMarker.pivot = {x:-pos, y:16};
 		ui.retroMarker.pivot = {x:-pos, y:16};
+
+		ui.speed.setText("SPEED: "+ship.speed.toFixed(1)+"m/s");
+		ui.alt.setText("ALT: "+ship.alt.toFixed(0)+"m");
 	}
 };
 
