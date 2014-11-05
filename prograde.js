@@ -77,11 +77,10 @@ var P = {
 		}
 
 		game.container = new PIXI.DisplayObjectContainer();
+		game.addChild(game.container);
 		game.container.addChild(planet.sprite);
 		game.container.addChild(ship.sprite);
 		ui.build(game.container);
-
-		game.addChild(game.container);
 		game.addChild(game.blackout);
 		return game;
 	},
@@ -97,11 +96,11 @@ var P = {
 		P.mode = "game";
 		P.stage = P.buildGame();
 		ship.x = 0;
-		ship.y = -1500;
-		ship.vx = P.GRAVITY_ENABLED?27:0;
+		ship.y = -2000;
+		ship.vx = P.GRAVITY_ENABLED?18:0;
 		ship.vy = 0;
-		ship.r = 0;
-		ship.vr = 0;
+		ship.r = Math.PI;
+		ship.vr = 0.01;
 	},
 
 	step: function() {
@@ -166,6 +165,17 @@ var planet = {
 	init: function() {
 		planet.sprite = new PIXI.Graphics();
 		with (planet.sprite) {
+			beginFill(0xFFFFFF,1);
+			for (var i=0; i<4000; i++) {
+				var angle = Math.random()*Math.PI*2;
+				var dist = Math.random()*12500;
+				var x = Math.cos(angle)*(dist+planet.rad);
+				var y = Math.sin(angle)*(dist+planet.rad);
+				var sz = Math.random()*4+2;
+				drawRect(x,y,sz,sz);
+			}
+			endFill();
+			
 			beginFill(0x908A85,1);
 			drawEllipse(0,0,planet.rad,planet.rad);
 			endFill();
@@ -180,14 +190,15 @@ var planet = {
 
 var ship = {
 	x: 0,
-	y: -1500,
-	r: 0,
-	vx: 27,
+	y: -2000,
+	r: Math.PI,
+	vx: 54,
 	vy: 0,
-	vr: 0,
-	thrust: 200,
-	rthrust: 1,
-	mass: 1000,
+	vr: 0.01,
+	thrust: 40,
+	rthrust: 0.5,
+	maxr: 0.125,
+	mass: 500,
 	sprite: null,
 
 	init: function() {
@@ -230,7 +241,7 @@ var ship = {
 			var ty = Math.sin(ship.r);
 
 			for (var i=0; i<5; i++) {
-				var v = Math.random()*3+7;
+				var v = Math.random()*2+4;
 				new Particle({
 					x: ship.x+tx*48+Math.random()*16-8,
 					y: ship.y+ty*48+Math.random()*16-8,
@@ -244,8 +255,8 @@ var ship = {
 		ship.y += ship.vy;
 
 		//rotation
-		if (P.keys[VK_LEFT]) ship.vr -= ship.rthrust/ship.mass;
-		if (P.keys[VK_RIGHT]) ship.vr += ship.rthrust/ship.mass;
+		if (P.keys[VK_LEFT] && ship.vr>-ship.maxr) ship.vr -= ship.rthrust/ship.mass;
+		if (P.keys[VK_RIGHT] && ship.vr<ship.maxr) ship.vr += ship.rthrust/ship.mass;
 		ship.r += ship.vr;
 
 		//update sprite
@@ -263,12 +274,14 @@ var ship = {
 var ui = {
 	proMarker: null,
 	retroMarker: null,
+	speed: null,
+	alt: null,
 
 	init: function() {
 		ui.proMarker = new PIXI.Graphics();
 		ui.proMarker.lineColor = 0x00FF00;
 		ui.proMarker.lineWidth = 1;
-		ui.proMarker.beginFill(0x00FF00,1);
+		ui.proMarker.beginFill(0x00FF00,0.5);
 		ui.proMarker.drawPolygon([
 			new PIXI.Point(0,0),
 			new PIXI.Point(32,16),
@@ -279,19 +292,39 @@ var ui = {
 		ui.retroMarker = new PIXI.Graphics();
 		ui.retroMarker.lineColor = 0xFF0000;
 		ui.retroMarker.lineWidth = 1;
-		ui.retroMarker.beginFill(0xFF0000,1);
+		ui.retroMarker.beginFill(0xFF0000,0.5);
 		ui.retroMarker.drawPolygon([
 			new PIXI.Point(0,0),
 			new PIXI.Point(32,16),
 			new PIXI.Point(0,32)
 		]);
 		ui.retroMarker.endFill();
+		
+		ui.speed = new PIXI.Text("SPEED: ", {
+			font: "24pt Raleway",
+			fill: "white",
+			dropShadow: true,
+			dropShadowColor: "black",
+			dropShadowDistance: "2"
+		});
+		ui.speed.position = {x:window.innerWidth/6, y:window.innerHeight-ui.speed.height-window.innerHeight/6};
+		
+		ui.alt = new PIXI.Text("ALT: 0000", {
+			font: "24pt Raleway",
+			fill: "white",
+			dropShadow: true,
+			dropShadowColor: "black",
+			dropShadowDistance: "2"
+		});
+		ui.alt.position = {x:window.innerWidth-ui.alt.width-window.innerWidth/6, y:window.innerHeight-ui.alt.height-window.innerHeight/6};
 	},
 
 	build: function(container) {
 		ui.init();
 		container.addChild(ui.proMarker);
 		container.addChild(ui.retroMarker);
+		container.parent.addChild(ui.speed);
+		container.parent.addChild(ui.alt);
 	},
 
 	step: function() {
