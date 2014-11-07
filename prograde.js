@@ -96,8 +96,8 @@ var P = {
 		P.mode = "game";
 		P.stage = P.buildGame();
 		ship.x = 0;
-		ship.y = -2000;
-		ship.vx = P.GRAVITY_ENABLED?18:0;
+		ship.y = -7000;
+		ship.vx = P.GRAVITY_ENABLED?22:0;
 		ship.vy = 0;
 		ship.r = Math.PI;
 		ship.vr = 0.01;
@@ -109,7 +109,8 @@ var P = {
 		var dx = obj.x-target.x;
 		var dy = obj.y-target.y;
 		var d = Math.sqrt(dx*dx+dy*dy);
-		var g = P.G*((obj.mass*target.mass)/d);
+		var d2 = d*d;
+		var g = P.G*((obj.mass*target.mass)/d2);
 		var angle = Math.atan2(dy,dx);
 		
 		return {
@@ -122,24 +123,21 @@ var P = {
 
 	step: function() {
 		P.t++;
-		switch (P.mode) {
-			case "menu":
-				P.stage.title.alpha = Math.min(1,P.t/60) - Math.max(0,(P.t-60)/30);
-				if (P.t>90) P.startGame();
-			break;
+		if (P.mode === "game") {
+			if (P.t<60) P.stage.blackout.alpha = 1-P.t/60;
+			planet.step();
+			ship.step();
+			
+			for (var i = P.objects.length - 1; i >= 0; i--)
+				if (typeof P.objects[i].step === "function") 
+					P.objects[i].step();
 
-			case "game":
-				if (P.t<60) P.stage.blackout.alpha = 1-P.t/60;
-				planet.step();
-				ship.step();
-				
-				for (var i = P.objects.length - 1; i >= 0; i--)
-					if (typeof P.objects[i].step === "function") 
-						P.objects[i].step();
-
-				ui.step();
-				camera.step();
-			break;
+			ui.step();
+			camera.step();
+		}
+		if (P.mode === "menu") {
+			P.stage.title.alpha = Math.min(1,P.t/60) - Math.max(0,(P.t-60)/30);
+			if (P.t>90) P.startGame();
 		}
 		
 		P.renderer.render(P.stage);
@@ -151,13 +149,13 @@ var camera = {
 	x: 0,
 	y: 0,
 	zoom: 1,
-	minZoom: 0.3,
+	minZoom: 0.4,
 
 	step: function() {
 		var dx = ship.x-planet.x;
 		var dy = ship.y-planet.y;
 		var d = Math.sqrt(dx*dx+dy*dy);
-		var scale = Math.min(window.innerWidth,window.innerHeight)/d;
+		var scale = Math.min(window.innerWidth,window.innerHeight)/(d*0.5);
 		if (scale<camera.minZoom) scale = camera.minZoom;
 		var angle = Math.atan2(dy,dx);
 		camera.zoom = scale;
@@ -177,8 +175,8 @@ var camera = {
 var planet = {
 	x: 0,
 	y: 0,
-	mass: 10000000000,
-	rad: 1200,
+	mass: 1e14,
+	rad: 6000,
 	sprite: null,
 	col: 0x908A85,
 
@@ -210,7 +208,7 @@ var planet = {
 
 var ship = {
 	x: 0,
-	y: -2000,
+	y: -7000,
 	r: Math.PI,
 	vx: 54,
 	vy: 0,
@@ -241,7 +239,7 @@ var ship = {
 	step: function() {
 		//gravity
 		var gfx = P.calcGravity(ship, planet);
-		ship.alt = gfx.d;
+		ship.alt = gfx.d-planet.rad;
 
 		if (P.GRAVITY_ENABLED) {
 			ship.vx += gfx.vx;
@@ -285,7 +283,7 @@ var ship = {
 
 		ship.speed = Math.sqrt(ship.vx*ship.vx+ship.vy*ship.vy);
 
-		if (ship.alt<planet.rad) {
+		if (ship.alt<0) {
 			P.startMenu();
 		}
 	}
@@ -360,22 +358,41 @@ var ui = {
 			vy: ship.vy,
 			mass: ship.mass
 		};
+		var startX = ship.x, startY = ship.y;
 		var points = [];
 		var maxVal = 0;
-		for (var i=0; i<1000; i++) {
+		var scaleup = 4;
+		var peri = {x:0,y:0,alt:Infinity}, apo = {x:0,y:0,alt:0};
+		var timer = Date.now();
+
+		for (var i=0; i<5000 && Date.now()-timer<3; i++) {
 			var gfx = P.calcGravity(pos, planet);
-			pos.vx += gfx.vx;
-			pos.vy += gfx.vy;
+			pos.vx += gfx.vx*scaleup;
+			pos.vy += gfx.vy*scaleup;
 			
-			pos.x += pos.vx;
-			pos.y += pos.vy;
+			pos.x += pos.vx*scaleup;
+			pos.y += pos.vy*scaleup;
 			
 			maxVal = Math.max(maxVal,Math.max(Math.abs(pos.x), Math.abs(pos.y)));
 			
 			if (i%20==0) points.push({
 				x: pos.x,
-				y: pos.y
+				y: pos.y,
+				alt: pos.d
 			});
+
+			if (gfx.d>apo.alt) {
+				apo.x = pos.x;
+				apo.y = pos.y;
+				apo.alt = gfx.d;
+			}
+			if (gfx.d<peri.alt) {
+				peri.x = pos.x;
+				peri.y = pos.y;
+				peri.alt = gfx.d;
+			}
+
+			if (i>100 && Math.abs(pos.x-startX)<20 && Math.abs(pos.y-startY)<20) break;
 		}
 		
 		var scale = size/(maxVal*2);
@@ -387,10 +404,12 @@ var ui = {
 		dest.drawRect(-size/2-32,-size/2-32,size+64,size+64);
 		dest.endFill();
 		
-		dest.beginFill(planet.col, 1);
+		//planet
+		dest.beginFill(peri.alt<=planet.rad?0xFF7060:planet.col, 1);
 		dest.drawEllipse(0,0,planet.rad*scale,planet.rad*scale);
 		dest.endFill();
 		
+		//orbit
 		dest.lineColor = 0x00FFFF;
 		dest.lineWidth = 2;
 		dest.moveTo(points[0].x*scale, points[0].y*scale);
@@ -398,9 +417,19 @@ var ui = {
 			dest.lineTo(points[i].x*scale, points[i].y*scale);
 		}
 		
+		//pos marker
 		dest.lineWidth = 2;
 		dest.lineColor = 0xFF0000;
 		dest.drawEllipse(points[0].x*scale, points[0].y*scale, 5, 5);
+
+		//apo/peri markers
+		dest.lineWidth = 0;
+		dest.beginFill(0x50FF10,1);
+		dest.drawEllipse(apo.x*scale, apo.y*scale, 4, 4);
+		dest.endFill();
+		dest.beginFill(0xFF5010,1);
+		dest.drawEllipse(peri.x*scale, peri.y*scale, 4, 4);
+		dest.endFill();
 	},
 
 	step: function() {
