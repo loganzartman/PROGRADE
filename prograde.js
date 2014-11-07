@@ -38,7 +38,7 @@ var P = {
 	},
 
 	init: function() {
-		P.renderer = PIXI.autoDetectRenderer(window.innerWidth, window.innerHeight, {antialias: true});
+		P.renderer = new PIXI.CanvasRenderer(window.innerWidth, window.innerHeight, {antialias: true});
 		P.renderer.view.style.position = "absolute";
 		P.renderer.view.style.left = "0";
 		P.renderer.view.style.top = "0";
@@ -102,6 +102,23 @@ var P = {
 		ship.r = Math.PI;
 		ship.vr = 0.01;
 	},
+	
+	calcGravity: function(obj, target) {
+		if (!target) target = planet;
+		
+		var dx = obj.x-target.x;
+		var dy = obj.y-target.y;
+		var d = Math.sqrt(dx*dx+dy*dy);
+		var g = P.G*((obj.mass*target.mass)/d);
+		var angle = Math.atan2(dy,dx);
+		
+		return {
+			vx: -Math.cos(angle)*g,
+			vy: -Math.sin(angle)*g,
+			d: d,
+			angle: angle
+		};
+	},
 
 	step: function() {
 		P.t++;
@@ -134,12 +151,14 @@ var camera = {
 	x: 0,
 	y: 0,
 	zoom: 1,
+	minZoom: 0.3,
 
 	step: function() {
 		var dx = ship.x-planet.x;
 		var dy = ship.y-planet.y;
 		var d = Math.sqrt(dx*dx+dy*dy);
 		var scale = Math.min(window.innerWidth,window.innerHeight)/d;
+		if (scale<camera.minZoom) scale = camera.minZoom;
 		var angle = Math.atan2(dy,dx);
 		camera.zoom = scale;
 
@@ -161,6 +180,7 @@ var planet = {
 	mass: 10000000000,
 	rad: 1200,
 	sprite: null,
+	col: 0x908A85,
 
 	init: function() {
 		planet.sprite = new PIXI.Graphics();
@@ -176,7 +196,7 @@ var planet = {
 			}
 			endFill();
 			
-			beginFill(0x908A85,1);
+			beginFill(planet.col,1);
 			drawEllipse(0,0,planet.rad,planet.rad);
 			endFill();
 		}
@@ -220,16 +240,12 @@ var ship = {
 
 	step: function() {
 		//gravity
-		var dx = ship.x-planet.x;
-		var dy = ship.y-planet.y;
-		var d = Math.sqrt(dx*dx+dy*dy);
-		ship.alt = d;
+		var gfx = P.calcGravity(ship, planet);
+		ship.alt = gfx.d;
 
 		if (P.GRAVITY_ENABLED) {
-			var g = P.G*((ship.mass*planet.mass)/d);
-			var angle = Math.atan2(dy,dx);
-			ship.vx -= Math.cos(angle)*g;
-			ship.vy -= Math.sin(angle)*g;
+			ship.vx += gfx.vx;
+			ship.vy += gfx.vy;
 		}
 
 		//thruster
@@ -280,6 +296,7 @@ var ui = {
 	retroMarker: null,
 	speed: null,
 	alt: null,
+	minimap: null,
 
 	init: function() {
 		ui.proMarker = new PIXI.Graphics();
@@ -311,7 +328,7 @@ var ui = {
 			dropShadowColor: "black",
 			dropShadowDistance: "2"
 		});
-		ui.speed.position = {x:window.innerWidth/6, y:window.innerHeight-24-window.innerHeight/6};
+		ui.speed.position = {x:window.innerWidth/6, y:window.innerHeight/8};
 		
 		ui.alt = new PIXI.Text("ALT: 0000m", {
 			font: "24pt Raleway",
@@ -320,7 +337,10 @@ var ui = {
 			dropShadowColor: "black",
 			dropShadowDistance: "2"
 		});
-		ui.alt.position = {x:window.innerWidth-ui.alt.width-window.innerWidth/6, y:window.innerHeight-24-window.innerHeight/6};
+		ui.alt.position = {x:window.innerWidth-ui.alt.width-window.innerWidth/6, y:window.innerHeight/8};
+		
+		ui.minimap = new PIXI.Graphics();
+		ui.minimap.position = {x:window.innerWidth/6, y:window.innerHeight-300};
 	},
 
 	build: function(container) {
@@ -329,6 +349,58 @@ var ui = {
 		container.addChild(ui.retroMarker);
 		container.parent.addChild(ui.speed);
 		container.parent.addChild(ui.alt);
+		container.parent.addChild(ui.minimap);
+	},
+	
+	drawOrbit: function(dest, size) {
+		var pos = {
+			x: ship.x,
+			y: ship.y,
+			vx: ship.vx,
+			vy: ship.vy,
+			mass: ship.mass
+		};
+		var points = [];
+		var maxVal = 0;
+		for (var i=0; i<1000; i++) {
+			var gfx = P.calcGravity(pos, planet);
+			pos.vx += gfx.vx;
+			pos.vy += gfx.vy;
+			
+			pos.x += pos.vx;
+			pos.y += pos.vy;
+			
+			maxVal = Math.max(maxVal,Math.max(Math.abs(pos.x), Math.abs(pos.y)));
+			
+			if (i%20==0) points.push({
+				x: pos.x,
+				y: pos.y
+			});
+		}
+		
+		var scale = size/(maxVal*2);
+		
+		dest.clear();
+		dest.lineWidth = 0;
+		
+		dest.beginFill(0x000000, 0.5);
+		dest.drawRect(-size/2-32,-size/2-32,size+64,size+64);
+		dest.endFill();
+		
+		dest.beginFill(planet.col, 1);
+		dest.drawEllipse(0,0,planet.rad*scale,planet.rad*scale);
+		dest.endFill();
+		
+		dest.lineColor = 0x00FFFF;
+		dest.lineWidth = 2;
+		dest.moveTo(points[0].x*scale, points[0].y*scale);
+		for (var i=1; i<points.length; i++) {
+			dest.lineTo(points[i].x*scale, points[i].y*scale);
+		}
+		
+		dest.lineWidth = 2;
+		dest.lineColor = 0xFF0000;
+		dest.drawEllipse(points[0].x*scale, points[0].y*scale, 5, 5);
 	},
 
 	step: function() {
@@ -346,6 +418,8 @@ var ui = {
 
 		ui.speed.setText("SPEED: "+ship.speed.toFixed(1)+"m/s");
 		ui.alt.setText("ALT: "+ship.alt.toFixed(0)+"m");
+		
+		ui.drawOrbit(ui.minimap, 200);
 	}
 };
 
