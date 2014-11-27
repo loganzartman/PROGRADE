@@ -1,8 +1,10 @@
 var VK_LEFT=37, VK_UP=38, VK_RIGHT=39;
 
 var P = {
+	srcs: ["camera.js", "particle.js", "pixi.dev.js", "pixi.etc.js", "planet.js", "ship.js", "ui.js"],
 	renderer: null,
 	stage: null,
+	starbox: null,
 	mode: "menu",
 	keys: [],
 	objects: [],
@@ -11,12 +13,20 @@ var P = {
 	GRAVITY_ENABLED: true,
 
 	load: function() {
+		var gate = (function() {
+			var n=3;
+			return function() {
+				if (n--===1) P.init();
+			};
+		})();
+
+		//load webfonts
 		WebFontConfig = {
 			google: {
 				families: [ 'Raleway:200' ]
 			},
 			active: function() {
-				P.init();
+				gate();
 			}
 		};
 		(function() {
@@ -29,6 +39,29 @@ var P = {
 			s.parentNode.insertBefore(wf, s);
 		})();
 
+		//load scripts
+		var loader = function(n) {
+			if (n<P.srcs.length) {
+				var script = document.createElement("script");
+				script.onload = function(){
+					console.log("loaded "+script.src);
+					if (P.srcs[n] === "pixi.dev.js") {
+						//load bitmap fonts
+						var assetsToLoad = ["font.fnt"];
+						var al = new PIXI.AssetLoader(assetsToLoad);
+						al.onComplete = function(){gate()};
+						al.load();
+					}
+					loader(n+1);
+				};
+				script.src = "script/"+P.srcs[n];
+				document.body.appendChild(script);
+			}
+			else gate();
+		};
+		loader(0);
+
+		//DOM events
 		document.addEventListener("keydown", function(event){
 			P.keys[event.keyCode] = true;
 		}, false);
@@ -38,11 +71,13 @@ var P = {
 	},
 
 	init: function() {
-		P.renderer = new PIXI.CanvasRenderer(window.innerWidth, window.innerHeight, {antialias: true});
+		P.renderer = new PIXI.WebGLRenderer(window.innerWidth, window.innerHeight, {antialias: true});
 		P.renderer.view.style.position = "absolute";
 		P.renderer.view.style.left = "0";
 		P.renderer.view.style.top = "0";
 		document.body.appendChild(P.renderer.view);
+
+		PIXI.CIRCLE_SEGMENTS = 100;
 		
 		P.startMenu();
 
@@ -76,8 +111,20 @@ var P = {
 			endFill();
 		}
 
+		game.sbsz = Math.max(P.renderer.view.width, P.renderer.view.height)*Math.sqrt(2);
+		var canv = document.createElement("canvas");
+		canv.width = game.sbsz;
+		canv.height = game.sbsz;
+		game.starbox = PIXI.Sprite.fromImage(canv.toDataURL());
+		game.starbox.filt = new StarboxFilter();
+		game.starbox.shader = game.starbox.filt;
+		game.starboxRenderer = new PIXI.RenderTexture(game.sbsz, game.sbsz);
+		game.starboxSprite = new PIXI.Sprite(game.starboxRenderer);
+		game.starboxSprite.position = {x:0, y:0};
+
 		game.container = new PIXI.DisplayObjectContainer();
 		game.addChild(game.container);
+		game.container.addChild(game.starboxSprite);
 		game.container.addChild(planet.sprite);
 		game.container.addChild(ship.sprite);
 		ui.build(game.container);
@@ -96,9 +143,12 @@ var P = {
 		P.mode = "game";
 		P.stage = P.buildGame();
 		ship.x = 0;
-		ship.y = -7000;
-		ship.vx = P.GRAVITY_ENABLED?22:0;
-		ship.vy = 0;
+		ship.y = -11000;
+
+		var vel = P.calcOrbitVel(ship, planet);
+		ship.vx = vel.vx;
+		ship.vy = vel.vy;
+
 		ship.r = Math.PI;
 		ship.vr = 0.01;
 	},
@@ -117,7 +167,25 @@ var P = {
 			vx: -Math.cos(angle)*g,
 			vy: -Math.sin(angle)*g,
 			d: d,
+			g: g,
 			angle: angle
+		};
+	},
+
+	//get velocity for a circular orbit
+	calcOrbitVel: function(obj, target) {
+		if (!target) target = planet;
+
+		var dx = obj.x-target.x;
+		var dy = obj.y-target.y;
+		var d = Math.sqrt(dx*dx+dy*dy);
+
+		var grav = P.calcGravity(obj, target);
+
+		var spd = Math.sqrt(d*grav.g);
+		return {
+			vx: Math.cos(grav.angle+Math.PI/2)*spd,
+			vy: Math.sin(grav.angle+Math.PI/2)*spd
 		};
 	},
 
@@ -127,6 +195,11 @@ var P = {
 			if (P.t<60) P.stage.blackout.alpha = 1-P.t/60;
 			planet.step();
 			ship.step();
+
+			P.stage.starbox.filt.offset = {
+				x: ship.x*0.0005,
+				y: ship.y*0.0005
+			};
 			
 			for (var i = P.objects.length - 1; i >= 0; i--)
 				if (typeof P.objects[i].step === "function") 
@@ -134,6 +207,11 @@ var P = {
 
 			ui.step();
 			camera.step();
+
+			var sc = 1/camera.zoom;
+			P.stage.starboxSprite.pivot = {x: (-ship.x)/sc+P.stage.sbsz/2, y: (-ship.y)/sc+P.stage.sbsz/2};
+			P.stage.starboxSprite.scale = {x: sc, y: sc};
+			P.stage.starboxRenderer.render(P.stage.starbox);
 		}
 		if (P.mode === "menu") {
 			P.stage.title.alpha = Math.min(1,P.t/60) - Math.max(0,(P.t-60)/30);
@@ -144,363 +222,3 @@ var P = {
 	}
 };
 window.addEventListener("load", P.load, false);
-
-var camera = {
-	x: 0,
-	y: 0,
-	zoom: 1,
-	minZoom: 0.4,
-
-	step: function() {
-		var dx = ship.x-planet.x;
-		var dy = ship.y-planet.y;
-		var d = Math.sqrt(dx*dx+dy*dy);
-		var scale = Math.min(window.innerWidth,window.innerHeight)/(d*0.5);
-		if (scale<camera.minZoom) scale = camera.minZoom;
-		var angle = Math.atan2(dy,dx);
-		camera.zoom = scale;
-
-		camera.x = ship.x*(1/camera.zoom) + ship.vx*camera.zoom*3;
-		camera.y = ship.y*(1/camera.zoom) + ship.vy*camera.zoom*3;
-
-		P.stage.container.pivot.x = camera.x*camera.zoom;
-		P.stage.container.pivot.y = camera.y*camera.zoom;
-		P.stage.container.x = window.innerWidth/2;
-		P.stage.container.y = window.innerHeight/2;
-		P.stage.container.scale = {x: camera.zoom, y: camera.zoom};
-		P.stage.container.rotation = Math.PI-ship.r+ship.vr*4;
-	}
-};
-
-var planet = {
-	x: 0,
-	y: 0,
-	mass: 1e14,
-	rad: 6000,
-	sprite: null,
-	col: 0x908A85,
-
-	init: function() {
-		planet.sprite = new PIXI.Graphics();
-		with (planet.sprite) {
-			beginFill(0xFFFFFF,1);
-			for (var i=0; i<4000; i++) {
-				var angle = Math.random()*Math.PI*2;
-				var dist = Math.random()*12500;
-				var x = Math.cos(angle)*(dist+planet.rad);
-				var y = Math.sin(angle)*(dist+planet.rad);
-				var sz = Math.random()*4+2;
-				drawRect(x,y,sz,sz);
-			}
-			endFill();
-			
-			beginFill(planet.col,1);
-			drawEllipse(0,0,planet.rad,planet.rad);
-			endFill();
-		}
-	},
-
-	step: function() {
-		planet.sprite.x = planet.x;
-		planet.sprite.y = planet.y;
-	}
-}
-
-var ship = {
-	x: 0,
-	y: -7000,
-	r: Math.PI,
-	vx: 54,
-	vy: 0,
-	vr: 0.01,
-	thrust: 40,
-	rthrust: 0.5,
-	maxr: 0.125,
-	mass: 500,
-	sprite: null,
-
-	init: function() {
-		ship.sprite = new PIXI.Graphics();
-		with (ship.sprite) {
-			beginFill(0xFFFFFF,1);
-			drawPolygon([
-				new PIXI.Point(0,32),
-				new PIXI.Point(16,0),
-				new PIXI.Point(32,32)
-			]);
-			drawRect(0,32,32,58);
-			drawRect(6,90,20,6);
-			endFill();
-		}
-
-		ship.sprite.pivot = new PIXI.Point(16,48);
-	},
-
-	step: function() {
-		//gravity
-		var gfx = P.calcGravity(ship, planet);
-		ship.alt = gfx.d-planet.rad;
-
-		if (P.GRAVITY_ENABLED) {
-			ship.vx += gfx.vx;
-			ship.vy += gfx.vy;
-		}
-
-		//thruster
-		if (P.keys[VK_UP]) {
-			var xc = Math.cos(ship.r-Math.PI);
-			var yc = Math.sin(ship.r-Math.PI);
-			ship.vx += xc*(ship.thrust/ship.mass);
-			ship.vy += yc*(ship.thrust/ship.mass);
-
-			var tx = Math.cos(ship.r);
-			var ty = Math.sin(ship.r);
-
-			for (var i=0; i<5; i++) {
-				var v = Math.random()*2+4;
-				new Particle({
-					x: ship.x+tx*48+Math.random()*16-8,
-					y: ship.y+ty*48+Math.random()*16-8,
-					vx: ship.vx+tx*ship.thrust/v,
-					vy: ship.vy+ty*ship.thrust/v,
-					life: Math.random()*10+10
-				});
-			}
-		}
-		ship.x += ship.vx;
-		ship.y += ship.vy;
-
-		//rotation
-		if (P.keys[VK_LEFT] && ship.vr>-ship.maxr) ship.vr -= ship.rthrust/ship.mass;
-		if (P.keys[VK_RIGHT] && ship.vr<ship.maxr) ship.vr += ship.rthrust/ship.mass;
-		ship.r += ship.vr;
-
-		//update sprite
-		ship.sprite.x = ship.x;
-		ship.sprite.y = ship.y;
-		ship.sprite.rotation = ship.r-Math.PI/2;
-		ship.sprite.scale = {x:1, y:1};
-
-		ship.speed = Math.sqrt(ship.vx*ship.vx+ship.vy*ship.vy);
-
-		if (ship.alt<0) {
-			P.startMenu();
-		}
-	}
-};
-
-var ui = {
-	proMarker: null,
-	retroMarker: null,
-	speed: null,
-	alt: null,
-	minimap: null,
-
-	init: function() {
-		ui.proMarker = new PIXI.Graphics();
-		ui.proMarker.lineColor = 0x00FF00;
-		ui.proMarker.lineWidth = 1;
-		ui.proMarker.beginFill(0x00FF00,0.5);
-		ui.proMarker.drawPolygon([
-			new PIXI.Point(0,0),
-			new PIXI.Point(32,16),
-			new PIXI.Point(0,32)
-		]);
-		ui.proMarker.endFill();
-
-		ui.retroMarker = new PIXI.Graphics();
-		ui.retroMarker.lineColor = 0xFF0000;
-		ui.retroMarker.lineWidth = 1;
-		ui.retroMarker.beginFill(0xFF0000,0.5);
-		ui.retroMarker.drawPolygon([
-			new PIXI.Point(0,0),
-			new PIXI.Point(32,16),
-			new PIXI.Point(0,32)
-		]);
-		ui.retroMarker.endFill();
-		
-		ui.speed = new PIXI.Text("SPEED: ", {
-			font: "24pt Raleway",
-			fill: "white",
-			dropShadow: true,
-			dropShadowColor: "black",
-			dropShadowDistance: "2"
-		});
-		ui.speed.position = {x:window.innerWidth/6, y:window.innerHeight/8};
-		
-		ui.alt = new PIXI.Text("ALT: 0000m", {
-			font: "24pt Raleway",
-			fill: "white",
-			dropShadow: true,
-			dropShadowColor: "black",
-			dropShadowDistance: "2"
-		});
-		ui.alt.position = {x:window.innerWidth-ui.alt.width-window.innerWidth/6, y:window.innerHeight/8};
-		
-		ui.minimap = new PIXI.Graphics();
-		ui.minimap.position = {x:window.innerWidth/6, y:window.innerHeight-300};
-	},
-
-	build: function(container) {
-		ui.init();
-		container.addChild(ui.proMarker);
-		container.addChild(ui.retroMarker);
-		container.parent.addChild(ui.speed);
-		container.parent.addChild(ui.alt);
-		container.parent.addChild(ui.minimap);
-	},
-	
-	drawOrbit: function(dest, size) {
-		var pos = {
-			x: ship.x,
-			y: ship.y,
-			vx: ship.vx,
-			vy: ship.vy,
-			mass: ship.mass
-		};
-		var startX = ship.x, startY = ship.y;
-		var points = [];
-		var maxVal = 0;
-		var scaleup = 4;
-		var peri = {x:0,y:0,alt:Infinity}, apo = {x:0,y:0,alt:0};
-		var timer = Date.now();
-
-		for (var i=0; i<5000 && Date.now()-timer<3; i++) {
-			var gfx = P.calcGravity(pos, planet);
-			pos.vx += gfx.vx*scaleup;
-			pos.vy += gfx.vy*scaleup;
-			
-			pos.x += pos.vx*scaleup;
-			pos.y += pos.vy*scaleup;
-			
-			maxVal = Math.max(maxVal,Math.max(Math.abs(pos.x), Math.abs(pos.y)));
-			
-			if (i%20==0) points.push({
-				x: pos.x,
-				y: pos.y,
-				alt: pos.d
-			});
-
-			if (gfx.d>apo.alt) {
-				apo.x = pos.x;
-				apo.y = pos.y;
-				apo.alt = gfx.d;
-			}
-			if (gfx.d<peri.alt) {
-				peri.x = pos.x;
-				peri.y = pos.y;
-				peri.alt = gfx.d;
-			}
-
-			if (i>100 && Math.abs(pos.x-startX)<20 && Math.abs(pos.y-startY)<20) break;
-		}
-		
-		var scale = size/(maxVal*2);
-		
-		dest.clear();
-		dest.lineWidth = 0;
-		
-		dest.beginFill(0x000000, 0.5);
-		dest.drawRect(-size/2-32,-size/2-32,size+64,size+64);
-		dest.endFill();
-		
-		//planet
-		dest.beginFill(peri.alt<=planet.rad?0xFF7060:planet.col, 1);
-		dest.drawEllipse(0,0,planet.rad*scale,planet.rad*scale);
-		dest.endFill();
-		
-		//orbit
-		dest.lineColor = 0x00FFFF;
-		dest.lineWidth = 2;
-		dest.moveTo(points[0].x*scale, points[0].y*scale);
-		for (var i=1; i<points.length; i++) {
-			dest.lineTo(points[i].x*scale, points[i].y*scale);
-		}
-		
-		//pos marker
-		dest.lineWidth = 2;
-		dest.lineColor = 0xFF0000;
-		dest.drawEllipse(points[0].x*scale, points[0].y*scale, 5, 5);
-
-		//apo/peri markers
-		dest.lineWidth = 0;
-		dest.beginFill(0x50FF10,1);
-		dest.drawEllipse(apo.x*scale, apo.y*scale, 4, 4);
-		dest.endFill();
-		dest.beginFill(0xFF5010,1);
-		dest.drawEllipse(peri.x*scale, peri.y*scale, 4, 4);
-		dest.endFill();
-	},
-
-	step: function() {
-		ui.proMarker.position = {x: ship.x, y: ship.y};
-		ui.retroMarker.position = {x: ship.x, y: ship.y};
-	
-		var vel = Math.sqrt(ship.vx*ship.vx+ship.vy*ship.vy);
-		var angle = Math.atan2(ship.vy, ship.vx);
-		ui.proMarker.rotation = angle;
-		ui.retroMarker.rotation = Math.PI+angle;
-		
-		var pos = 96 + 5*vel;
-		ui.proMarker.pivot = {x:-pos, y:16};
-		ui.retroMarker.pivot = {x:-pos, y:16};
-
-		ui.speed.setText("SPEED: "+ship.speed.toFixed(1)+"m/s");
-		ui.alt.setText("ALT: "+ship.alt.toFixed(0)+"m");
-		
-		ui.drawOrbit(ui.minimap, 200);
-	}
-};
-
-var Particle = function(params) {
-	this.x = params.x||0;
-	this.y = params.y||0;
-	this.vx = params.vx||0;
-	this.vy = params.vy||0;
-	this.r = params.r||Math.random()*Math.PI*2;
-	this.vr = typeof params.vr === "undefined" ? (-0.5+Math.random())*0.05 : params.vr;
-	this.life = typeof params.life === "undefined" ? 30 : params.life;
-	this.maxlife = this.life;
-	this.size = params.size||8;
-
-	this.col1 = typeof params.col1 === "undefined" ? 0xDA9A20 : params.col1;
-	this.col2 = typeof params.col2 === "undefined" ? 0xAA1A05 : params.col2;
-	this.col1 = PIXI.hex2rgb(this.col1);
-	this.col2 = PIXI.hex2rgb(this.col2);
-
-	this.sprite = new PIXI.Graphics();
-
-	P.stage.container.addChildAt(this.sprite,1);
-	P.objects.push(this);
-}
-Particle.prototype.step = function() {
-	var cval = 1-this.life/this.maxlife;
-	var col = tweenCols(this.col1, this.col2, cval);
-	with (this.sprite) {
-		clear();
-		beginFill(PIXI.rgb2hex(col), 1);
-		drawRect(0,0,this.size,this.size);
-		endFill();
-	}
-	this.sprite.alpha = this.life/this.maxlife;
-
-	if (this.life--<0) this.destroy();
-	this.x += this.vx;
-	this.y += this.vy;
-	this.r += this.vr;
-	this.sprite.x = this.x;
-	this.sprite.y = this.y;
-	this.sprite.rotation = this.r;
-}
-Particle.prototype.destroy = function() {
-	P.stage.container.removeChild(this.sprite);
-	if (P.objects.indexOf(this)>=0) P.objects.splice(P.objects.indexOf(this), 1);
-};
-
-function tweenCols(a,b,f) {
-	return [
-		a[0]*(1-f) + b[0]*f,
-		a[1]*(1-f) + b[1]*f,
-		a[2]*(1-f) + b[2]*f
-	];
-}

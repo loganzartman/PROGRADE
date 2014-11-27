@@ -12043,7 +12043,7 @@ PIXI.Graphics.prototype._renderCanvas = function(renderSession)
 
         PIXI.CanvasGraphics.renderGraphics(this, context);
 
-        // simple render children!
+         // simple render children!
         for(var i=0, j=this.children.length; i<j; i++)
         {
             this.children[i]._renderCanvas(renderSession);
