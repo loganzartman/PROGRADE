@@ -48,7 +48,7 @@ var ship = {
 			var tx = Math.cos(ship.r);
 			var ty = Math.sin(ship.r);
 
-			for (var i=0; i<5; i++) {
+			for (var i=0; i<2; i++) {
 				var v = Math.random()*2+4;
 				new Particle({
 					x: ship.x+tx*48+Math.random()*16-8,

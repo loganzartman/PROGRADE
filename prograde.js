@@ -1,7 +1,7 @@
 var VK_LEFT=37, VK_UP=38, VK_RIGHT=39;
 
 var P = {
-	srcs: ["camera.js", "particle.js", "pixi.dev.js", "pixi.etc.js", "planet.js", "ship.js", "ui.js"],
+	srcs: ["camera.js", "particle.js", "pixi.dev.js", "pixi.etc.js", "planet.js", "ship.js", "asteroid.js", "ui.js"],
 	renderer: null,
 	stage: null,
 	starbox: null,
@@ -151,17 +151,22 @@ var P = {
 
 		ship.r = Math.PI;
 		ship.vr = 0.01;
+
+		//asteroids!
+		for (var i=0; i<100; i++) {
+			var angle = Math.random()*Math.PI*2;
+			var height = Math.random()*10000 + 10500;
+			var a = new Asteroid(Math.cos(angle)*height, Math.sin(angle)*height);
+		}
 	},
 	
 	calcGravity: function(obj, target) {
-		if (!target) target = planet;
-		
 		var dx = obj.x-target.x;
 		var dy = obj.y-target.y;
 		var d = Math.sqrt(dx*dx+dy*dy);
 		var d2 = d*d;
 		var g = P.G*((obj.mass*target.mass)/d2);
-		var angle = Math.atan2(dy,dx);
+		var angle = fatan2(dy,dx);
 		
 		return {
 			vx: -Math.cos(angle)*g,
@@ -222,3 +227,13 @@ var P = {
 	}
 };
 window.addEventListener("load", P.load, false);
+
+//fast
+function fatan2(y,x) {
+	if (x>0) return Math.atan(y/x);
+	if (y>=0 && x<0) return Math.atan(y/x)+Math.PI;
+	if (y<0 && x<0) return Math.atan(y/x)-Math.PI;
+	if (y>0 && x===0) return Math.PI/2;
+	if (y<0 && x===0) return -Math.PI/2;
+	if (x===0 && y===0) return 0;
+}

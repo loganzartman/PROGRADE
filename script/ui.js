@@ -113,6 +113,18 @@ var ui = {
 		dest.lineStyle(2,peri.alt<=planet.rad?0xFF7060:0xFFFFFF, 1);
 		dest.drawEllipse(0,0,planet.rad*scale,planet.rad*scale);
 		dest.endFill();
+
+		//asteroids
+		dest.lineStyle(1, Asteroid.COLOR, 1);
+		for (var i = P.objects.length - 1; i >= 0; i--) {
+			var o = P.objects[i];
+			if (o instanceof Asteroid) {
+				var xx = o.x*scale,
+					yy = o.y*scale;
+				if (xx>-size/2-32 && yy>-size/2-32 && xx<size/2+32 && yy<size/2+32)
+					dest.drawRect(xx-1, yy-1, 3, 3);
+			}
+		};
 		
 		//orbit
 		dest.lineColor = 0x00FFFF;
