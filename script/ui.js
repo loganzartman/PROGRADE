@@ -63,7 +63,7 @@ var ui = {
 		var startX = ship.x, startY = ship.y;
 		var points = [];
 		var maxVal = 0;
-		var scaleup = 4;
+		var scaleup = 8;
 		var peri = {x:0,y:0,alt:Infinity}, apo = {x:0,y:0,alt:0};
 		var timer = Date.now();
 
@@ -77,7 +77,7 @@ var ui = {
 			
 			maxVal = Math.max(maxVal,Math.max(Math.abs(pos.x), Math.abs(pos.y)));
 			
-			if (i%10==0) points.push({
+			if (i%5==0) points.push({
 				x: pos.x,
 				y: pos.y,
 				alt: pos.d
